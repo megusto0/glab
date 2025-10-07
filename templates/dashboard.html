@@ -35,15 +35,28 @@
         }
         #imageGallery {
             display: flex;
-            flex-wrap: wrap;
-            gap: 12px;
+            flex-direction: column;
+            gap: 16px;
         }
-        #imageGallery img {
-            width: 160px;
-            height: 120px;
-            object-fit: cover;
-            border-radius: 6px;
+        .preview-card {
+            background: #f8f9fa;
             border: 1px solid #dee2e6;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 1px 4px rgba(33, 37, 41, 0.08);
+        }
+        .preview-card img {
+            width: 100%;
+            display: block;
+        }
+        .preview-card .preview-meta {
+            padding: 12px 16px;
+            font-size: 14px;
+            line-height: 1.4;
+        }
+        .preview-card .preview-meta strong {
+            display: block;
+            margin-bottom: 4px;
         }
         #statusMessage {
             margin-top: 12px;
@@ -89,11 +102,46 @@
 
                 if (data.images.length) {
                     imageGallery.innerHTML = '';
-                    for (const filename of data.images) {
+                    for (const entry of data.images) {
+                        const card = document.createElement('div');
+                        card.className = 'preview-card';
+
                         const img = document.createElement('img');
-                        img.src = `/uploads/${filename}`;
-                        img.alt = `Загруженное изображение ${filename}`;
-                        imageGallery.appendChild(img);
+                        img.src = `/uploads/${entry.preview}`;
+                        img.alt = `Превью обработки ${entry.original_name || entry.preview}`;
+                        card.appendChild(img);
+
+                        const meta = document.createElement('div');
+                        meta.className = 'preview-meta';
+                        const modulesLabel = entry.modules === 'нет' ? 'Без включенных модулей' : entry.modules;
+
+                        const deltaBytes = typeof entry.compression_delta === 'number' ? entry.compression_delta : 0;
+                        const deltaPercent = typeof entry.compression_delta_percent === 'number'
+                            ? `${deltaBytes >= 0 ? '+' : ''}${entry.compression_delta_percent.toFixed(1)}%`
+                            : 'н/д';
+                        const compressionStageSize = entry.compression_stage_size ?? entry.processed_size;
+                        let compressionDetails = '';
+                        if (entry.compression_method && entry.compression_method !== 'none') {
+                            const methodLabel = entry.compression_format || entry.compression_method.toUpperCase();
+                            const qualityLabel = entry.compression_quality ? ` (качество ${entry.compression_quality})` : '';
+                            compressionDetails = `<br>Δ потока: ${deltaBytes >= 0 ? '+' : ''}${deltaBytes} Б (${deltaPercent})` +
+                                `<br>Метод сжатия: ${methodLabel}${qualityLabel}` +
+                                `<br>Размер потока после сжатия: ${compressionStageSize} Б`;
+                        }
+
+                        meta.innerHTML = `
+                            <strong>${modulesLabel}</strong>
+                            Имя клиента: ${entry.original_name || 'неизвестно'}<br>
+                            Время обработки: ${entry.timestamp}<br>
+                            Исходный размер: ${entry.original_size} Б${compressionDetails}
+                            <br>Поток после модулей: ${entry.processed_size} Б
+                            <br>Получено сервером: ${entry.final_size} Б
+                            <br>Файл на диске: ${entry.final}
+                            ${entry.processed ? `<br>Потоковый файл: ${entry.processed}` : ''}
+                        `;
+                        card.appendChild(meta);
+
+                        imageGallery.appendChild(card);
                     }
                 } else {
                     imageGallery.textContent = 'Изображения еще не получены...';
