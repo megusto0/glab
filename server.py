@@ -183,6 +183,20 @@ def upload():
         save_path.write_bytes(received_bytes)
         add_log(f"💾 Файл сохранен как {saved_name}")
 
+        if use_compression or use_encryption:
+            processed_suffix = ".bin"
+            if use_compression and not use_encryption:
+                processed_suffix = suffix + ".gz"
+            elif use_encryption:
+                processed_suffix = ".enc"
+            stored_processed_name = f"{timestamp}_processed{processed_suffix}"
+            processed_save_path = UPLOAD_DIR / stored_processed_name
+            processed_save_path.write_bytes(processed_bytes)
+            add_log(
+                f"💾 Обработанные данные сохранены как {stored_processed_name} "
+                f"(размер: {len(processed_bytes)} байт)"
+            )
+
         with DATA_LOCK:
             if saved_name not in IMAGE_NAMES:
                 IMAGE_NAMES.append(saved_name)
