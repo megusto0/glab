@@ -31,8 +31,8 @@ UPLOAD_DIR = STATIC_DIR / "uploads"
 
 AES_KEY = b"0123456789ABCDEF0123456789ABCDEF"  # 32 байта для AES-256
 
-LOG_MESSAGES: List[str] = []
-IMAGE_ENTRIES: List[Dict[str, object]] = []
+LOG_HISTORY: List[Dict[str, str]] = []
+UPLOAD_RECORDS: List[Dict[str, object]] = []
 DATA_LOCK = Lock()
 
 
@@ -49,11 +49,20 @@ def configure_logging() -> None:
     )
 
 
-def add_log(message: str) -> None:
+def add_log(message: str, level: str = "INFO", upload_id: str | None = None) -> None:
     """Добавляет сообщение в общий лог и выводит его в консоль."""
-    logging.info(message)
+    level_upper = level.upper()
+    log_func = getattr(logging, level_upper.lower(), logging.info)
+    log_func(message)
+    entry = {
+        "timestamp": datetime.now().strftime("%H:%M:%S"),
+        "level": level_upper,
+        "message": message,
+    }
+    if upload_id:
+        entry["upload_id"] = upload_id
     with DATA_LOCK:
-        LOG_MESSAGES.append(message)
+        LOG_HISTORY.append(entry)
 
 
 def load_image_from_bytes(data: bytes) -> Image.Image | None:
@@ -63,18 +72,6 @@ def load_image_from_bytes(data: bytes) -> Image.Image | None:
     try:
         with Image.open(io.BytesIO(data)) as img:
             return img.convert("RGB")
-    except Exception:  # noqa: BLE001
-        return None
-
-
-def open_image_for_compression(data: bytes) -> Image.Image | None:
-    """Открывает изображение, сохраняя альфа-канал при необходимости."""
-    if not data:
-        return None
-    try:
-        with Image.open(io.BytesIO(data)) as img:
-            mode = "RGBA" if "A" in img.mode else "RGB"
-            return img.convert(mode)
     except Exception:  # noqa: BLE001
         return None
 
@@ -176,36 +173,37 @@ def build_preview_image(
 
     header_text = f"Модули: {modules_text} • Имя: {original_name or 'без имени'}"
     draw.text((margin, margin), header_text, font=font, fill=(33, 37, 41))
-    size_for_delta = processed_size
-    if compression_info and isinstance(compression_info.get("stage_size"), (int, float)):
-        try:
-            size_for_delta = int(compression_info["stage_size"])
-        except (TypeError, ValueError):
-            size_for_delta = processed_size
-
-    change_percent = 0.0
-    if original_size:
-        change_percent = (size_for_delta - original_size) / original_size * 100
-    change_symbol = "−" if change_percent < 0 else "+"
-    compression_details = ""
-    if compression_info and compression_info.get("method") == "reencode":
-        method_name = compression_info.get("format", "WebP")
-        quality = compression_info.get("quality")
-        if quality:
-            compression_details = f"{method_name} q={quality}"
-        else:
-            compression_details = str(method_name)
-    elif compression_info and compression_info.get("method") == "gzip":
-        compression_details = "GZIP"
-
     subheader = (
         f"Исходный размер: {original_size} Б • После модулей: {processed_size} Б • На выходе: {final_size} Б"
     )
     draw.text((margin, margin + 18), subheader, font=font, fill=(73, 80, 87))
-    delta_line = f"Δ потока: {change_symbol}{abs(change_percent):.1f}%"
-    if compression_details:
-        delta_line += f" ({compression_details})"
-    draw.text((margin, margin + 36), delta_line, font=font, fill=(73, 80, 87))
+    compression_line = ""
+    if compression_info and compression_info.get("method") == "gzip":
+        stage_size = compression_info.get("stage_size")
+        ratio_percent = compression_info.get("ratio_percent")
+        change_bytes = compression_info.get("delta")
+        savings_percent = compression_info.get("delta_percent")
+        change_phrase = ""
+        if isinstance(savings_percent, (int, float)):
+            if savings_percent >= 0:
+                change_phrase = f"экономия {savings_percent:.1f}%"
+            else:
+                change_phrase = f"рост {abs(savings_percent):.1f}%"
+        if isinstance(stage_size, (int, float)) and isinstance(ratio_percent, (int, float)) and isinstance(change_bytes, (int, float)):
+            compression_line = (
+                f"GZIP: {int(stage_size)} Б • Коэффициент: {ratio_percent:.1f}% "
+                f"({int(change_bytes):+} Б"
+            )
+            if change_phrase:
+                compression_line += f", {change_phrase}"
+            compression_line += ")"
+        else:
+            compression_line = "GZIP: статистика недоступна."
+    elif modules_text == "нет":
+        compression_line = "Модули не задействованы."
+    else:
+        compression_line = "GZIP отключен."
+    draw.text((margin, margin + 36), compression_line, font=font, fill=(73, 80, 87))
     draw.text((margin, margin + 54), f"Время: {timestamp}", font=font, fill=(73, 80, 87))
 
     for index, (title, tile, size_bytes) in enumerate(prepared_tiles):
@@ -252,21 +250,21 @@ def serve_uploaded_file(filename: str):
 def get_updates():
     """Возвращает логи и список изображений для панели управления."""
     with DATA_LOCK:
-        logs_copy = list(LOG_MESSAGES)
-        images_copy = list(IMAGE_ENTRIES)
-    return jsonify({"logs": logs_copy, "images": images_copy})
+        logs_copy = list(LOG_HISTORY)
+        uploads_copy = list(UPLOAD_RECORDS)
+    return jsonify({"logs": logs_copy, "uploads": uploads_copy})
 
 
 @app.route("/upload", methods=["POST"])
 def upload():
     """Обрабатывает загрузку изображений с демонстрацией модулей."""
     if "image" not in request.files:
-        add_log("❌ Ошибка: не найден файл изображения в запросе.")
+        add_log("❌ Ошибка: не найден файл изображения в запросе.", level="ERROR")
         return jsonify({"status": "error", "message": "Файл изображения не найден"}), 400
 
     file_storage = request.files["image"]
     if file_storage.filename == "":
-        add_log("❌ Ошибка: пустое имя файла.")
+        add_log("❌ Ошибка: пустое имя файла.", level="ERROR")
         return jsonify({"status": "error", "message": "Имя файла пустое"}), 400
 
     use_encryption = request.form.get("use_encryption", "false").lower() == "true"
@@ -274,9 +272,11 @@ def upload():
     use_integrity = request.form.get("use_integrity", "false").lower() == "true"
     integrity_hash = request.form.get("integrity_hash", "")
 
-    original_name = secure_filename(file_storage.filename)
-    original_suffix = Path(original_name).suffix or ".bin"
-    add_log(f"📥 Получен файл: {original_name or 'неизвестно'}")
+    original_name = file_storage.filename or "без имени"
+    now = datetime.now()
+    upload_id = now.strftime("%Y%m%d%H%M%S%f")
+    timestamp_for_files = now.strftime("%Y%m%d_%H%M%S_%f")
+    readable_timestamp = now.strftime("%Y-%m-%d %H:%M:%S")
 
     enabled_modules = []
     if use_encryption:
@@ -286,193 +286,197 @@ def upload():
     if use_integrity:
         enabled_modules.append("Проверка целостности")
     modules_text = ", ".join(enabled_modules) if enabled_modules else "нет"
-    add_log(f"⚙ Включенные модули: {modules_text}")
+
+    add_log(f"📥 Получен файл: {original_name}", upload_id=upload_id)
+    add_log(f"⚙ Включенные модули: {modules_text}", upload_id=upload_id)
 
     try:
         raw_bytes = file_storage.read()
         original_size = len(raw_bytes)
-        add_log(f"📏 Исходный размер: {original_size} байт")
+        add_log(f"📏 Исходный размер: {original_size} байт", upload_id=upload_id)
 
-        processed_bytes = raw_bytes
-        stored_processed_name = ""
-        processed_size = len(processed_bytes)
-        compression_info: Dict[str, object] | None = None
-        compressed_stage_size: int | None = None
+        record: Dict[str, object] = {
+            "id": upload_id,
+            "timestamp": readable_timestamp,
+            "original_name": original_name,
+            "modules": {
+                "encryption": use_encryption,
+                "compression": use_compression,
+                "integrity": use_integrity,
+            },
+            "status": "processing",
+            "status_message": "",
+            "sizes": {
+                "original": original_size,
+                "after_compression": None,
+                "after_encryption": None,
+                "final": None,
+                "compression_ratio_percent": None,
+            },
+            "files": {},
+            "compression": None,
+        }
+
+        def finalize_upload(status: str, status_message: str, http_status: int, payload: Dict[str, object]):
+            record["status"] = status
+            record["status_message"] = status_message
+            with DATA_LOCK:
+                UPLOAD_RECORDS.append(record)
+            add_log("📡 Обновления готовы для панели управления.", upload_id=upload_id)
+            return jsonify(payload), http_status
+
+        def fail_upload(message: str, client_message: str, http_status: int = 400):
+            add_log(message, level="ERROR", upload_id=upload_id)
+            return finalize_upload(
+                status="error",
+                status_message=message,
+                http_status=http_status,
+                payload={"status": "error", "message": client_message},
+            )
 
         if use_integrity:
-            add_log("🔐 Получен контрольный хэш от клиента (SHA-256).")
             if not integrity_hash:
-                add_log("❌ Ошибка: хэш не передан, хотя включена проверка целостности.")
-                return jsonify({"status": "error", "message": "Не передан хэш для проверки целостности"}), 400
+                return fail_upload(
+                    "❌ Ошибка: хэш не передан, хотя включена проверка целостности.",
+                    "Не передан хэш для проверки целостности",
+                )
             integrity_hash = integrity_hash.strip().lower()
+            add_log("🔐 Получен контрольный хэш от клиента (SHA-256).", upload_id=upload_id)
 
+        processed_bytes = raw_bytes
+        compressed_size = None
+        compression_details: Dict[str, object] | None = None
         if use_compression:
-            image_for_compression = open_image_for_compression(processed_bytes)
-            if image_for_compression and not use_integrity:
-                quality = 60
-                buffer = io.BytesIO()
-                image_for_compression.save(buffer, format="WEBP", quality=quality, method=6)
-                processed_bytes = buffer.getvalue()
-                processed_size = len(processed_bytes)
-                delta = processed_size - original_size
-                delta_percent = (delta / original_size) * 100 if original_size else 0.0
-                compression_info = {
-                    "method": "reencode",
-                    "format": "WebP",
-                    "quality": quality,
-                    "output_suffix": ".webp",
-                    "stage_size": processed_size,
-                    "delta": delta,
-                    "delta_percent": delta_percent,
-                }
-                add_log(
-                    f"🗜 Перекодировано в WebP (качество {quality}). "
-                    f"Размер: {processed_size} байт ({delta:+} Б, {delta_percent:+.1f}%)"
-                )
-                compressed_stage_size = processed_size
-            else:
-                processed_bytes = gzip.compress(processed_bytes)
-                processed_size = len(processed_bytes)
-                delta = processed_size - original_size
-                delta_percent = (delta / original_size) * 100 if original_size else 0.0
-                compression_info = {
-                    "method": "gzip",
-                    "format": "GZIP",
-                    "output_suffix": original_suffix,
-                    "stage_size": processed_size,
-                    "delta": delta,
-                    "delta_percent": delta_percent,
-                }
-                add_log(
-                    f"🗜 Размер после сжатия GZIP: {processed_size} байт "
-                    f"({delta:+} Б, {delta_percent:+.1f}%)"
-                )
-                if image_for_compression and use_integrity:
-                    add_log("ℹ️ Проверка целостности требует без потерь, поэтому использован GZIP.")
-                if not image_for_compression:
-                    add_log("ℹ️ Файл не распознан как изображение, применяется GZIP.")
-                compressed_stage_size = processed_size
+            processed_bytes = gzip.compress(processed_bytes)
+            compressed_size = len(processed_bytes)
+            record["sizes"]["after_compression"] = compressed_size
+            ratio_percent = (compressed_size / original_size * 100) if original_size else 100.0
+            savings_percent = (1 - compressed_size / original_size) * 100 if original_size else 0.0
+            change_bytes = compressed_size - original_size
+            savings_text = (
+                f"экономия {savings_percent:.1f}%"
+                if savings_percent >= 0
+                else f"увеличение {abs(savings_percent):.1f}%"
+            )
+            record["sizes"]["compression_ratio_percent"] = ratio_percent
+            compression_details = {
+                "output_size": compressed_size,
+                "ratio_percent": ratio_percent,
+                "savings_percent": savings_percent,
+                "change_bytes": change_bytes,
+            }
+            record["compression"] = compression_details
+            add_log(
+                f"🗜 Размер после GZIP: {compressed_size} байт • Коэффициент сжатия: {ratio_percent:.1f}% "
+                f"({change_bytes:+} Б, {savings_text})",
+                upload_id=upload_id,
+            )
 
-        iv = b""
+        channel_bytes = processed_bytes
         if use_encryption:
             iv = get_random_bytes(AES.block_size)
             cipher_enc = AES.new(AES_KEY, AES.MODE_CBC, iv=iv)
-            padded = pad(processed_bytes, AES.block_size)
+            padded = pad(channel_bytes, AES.block_size)
             encrypted_bytes = cipher_enc.encrypt(padded)
-            processed_bytes = iv + encrypted_bytes
-            processed_size = len(processed_bytes)
-            add_log(f"🔒 Данные зашифрованы (AES-CBC). Размер пакета: {processed_size} байт")
+            channel_bytes = iv + encrypted_bytes
+            record["sizes"]["after_encryption"] = len(channel_bytes)
+            add_log(f"🔒 Данные зашифрованы (AES-CBC). Размер пакета: {len(channel_bytes)} байт", upload_id=upload_id)
 
-        received_bytes = processed_bytes
+        received_bytes = channel_bytes
 
         if use_encryption:
-            add_log("🔓 Начинаю расшифровку данных.")
+            add_log("🔓 Начинаю расшифровку данных.", upload_id=upload_id)
             iv = received_bytes[: AES.block_size]
             encrypted_part = received_bytes[AES.block_size :]
             try:
                 cipher_dec = AES.new(AES_KEY, AES.MODE_CBC, iv=iv)
                 decrypted_padded = cipher_dec.decrypt(encrypted_part)
                 received_bytes = unpad(decrypted_padded, AES.block_size)
-                add_log("✅ Расшифровка завершена успешно.")
+                add_log("✅ Расшифровка завершена успешно.", upload_id=upload_id)
             except ValueError as exc:
-                add_log(f"❌ Ошибка расшифровки: {exc}")
-                return jsonify({"status": "error", "message": "Не удалось расшифровать данные"}), 400
+                return fail_upload(f"❌ Ошибка расшифровки: {exc}", "Не удалось расшифровать данные")
 
         if use_compression:
-            if compression_info and compression_info.get("method") == "gzip":
-                add_log("🗜 Распаковка данных GZIP.")
-                try:
-                    received_bytes = gzip.decompress(received_bytes)
-                    add_log("✅ Распаковка завершена успешно.")
-                except OSError as exc:
-                    add_log(f"❌ Ошибка распаковки: {exc}")
-                    return jsonify({"status": "error", "message": "Не удалось распаковать данные"}), 400
-            else:
-                add_log("🗜 Перекодированное изображение, распаковка не требуется.")
+            add_log("🗜 Распаковка данных GZIP.", upload_id=upload_id)
+            try:
+                received_bytes = gzip.decompress(received_bytes)
+                add_log("✅ Распаковка завершена успешно.", upload_id=upload_id)
+            except OSError as exc:
+                return fail_upload(f"❌ Ошибка распаковки: {exc}", "Не удалось распаковать данные")
 
         if use_integrity:
-            add_log("🔍 Проверка целостности SHA-256.")
+            add_log("🔍 Проверка целостности SHA-256.", upload_id=upload_id)
             computed_hash = hashlib.sha256(received_bytes).hexdigest()
             if computed_hash == integrity_hash:
-                add_log("✅ Целостность данных подтверждена.")
+                add_log("✅ Целостность данных подтверждена.", upload_id=upload_id)
             else:
-                add_log("❌ ВНИМАНИЕ! Целостность данных нарушена!")
+                return fail_upload(
+                    "❌ Целостность данных нарушена (SHA-256 не совпал).",
+                    "Целостность данных нарушена",
+                )
 
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-        final_suffix = original_suffix
-        if compression_info and compression_info.get("output_suffix"):
-            final_suffix = str(compression_info["output_suffix"])
-            if not final_suffix.startswith("."):
-                final_suffix = f".{final_suffix}"
-        saved_name = f"{timestamp}{final_suffix}"
-        save_path = UPLOAD_DIR / saved_name
+        safe_candidate = secure_filename(original_name)
+        original_suffix = Path(original_name).suffix or Path(safe_candidate).suffix or ".bin"
+        safe_candidate = secure_filename(original_name)
+        if not safe_candidate:
+            hash_suffix = hashlib.sha1(original_name.encode("utf-8", "ignore")).hexdigest()[:10]
+            safe_candidate = f"upload_{hash_suffix}{original_suffix}"
+        safe_path = Path(safe_candidate)
+        safe_stem = safe_path.stem or "file"
+        final_filename = f"{timestamp_for_files}_{safe_stem}{original_suffix}"
+        save_path = UPLOAD_DIR / final_filename
         save_path.write_bytes(received_bytes)
-        add_log(f"💾 Файл сохранен как {saved_name}")
+        add_log(f"💾 Файл сохранен как {final_filename}", upload_id=upload_id)
 
         final_size = len(received_bytes)
+        record["sizes"]["final"] = final_size
+        record["status"] = "success"
+        record["status_message"] = "Файл успешно загружен"
 
-        should_store_processed = False
-        processed_suffix = ".bin"
-        if use_encryption:
-            should_store_processed = True
-            processed_suffix = ".enc"
-        elif use_compression and compression_info and compression_info.get("method") == "gzip":
-            should_store_processed = True
-            processed_suffix = f"{original_suffix}.gz"
-
-        if should_store_processed:
-            stored_processed_name = f"{timestamp}_processed{processed_suffix}"
-            processed_save_path = UPLOAD_DIR / stored_processed_name
-            processed_save_path.write_bytes(processed_bytes)
-            add_log(
-                f"💾 Обработанные данные сохранены как {stored_processed_name} "
-                f"(размер: {len(processed_bytes)} байт)"
-            )
-
-        preview_name = f"{timestamp}_preview.png"
+        preview_name = f"{timestamp_for_files}_preview.png"
         preview_path = UPLOAD_DIR / preview_name
+        compression_info_payload = None
+        if compression_details and compressed_size is not None:
+            compression_info_payload = {
+                "method": "gzip",
+                "format": "GZIP",
+                "output_suffix": original_suffix,
+                "stage_size": compressed_size,
+                "delta": compression_details["change_bytes"],
+                "delta_percent": compression_details["savings_percent"],
+                "ratio_percent": compression_details["ratio_percent"],
+            }
+
         preview_image = build_preview_image(
             original_bytes=raw_bytes,
-            processed_bytes=processed_bytes,
+            processed_bytes=channel_bytes,
             final_bytes=received_bytes,
             modules_text=modules_text,
-            timestamp=timestamp,
+            timestamp=readable_timestamp,
             original_name=original_name,
             original_size=original_size,
-            processed_size=processed_size,
+            processed_size=len(channel_bytes),
             final_size=final_size,
-            compression_info=compression_info,
+            compression_info=compression_info_payload,
         )
         preview_image.save(preview_path)
-        add_log(f"🖼 Превью обработанного потока сохранено как {preview_name}")
+        add_log(f"🖼 Превью обработанного потока сохранено как {preview_name}", upload_id=upload_id)
 
-        entry = {
+        record["files"] = {
             "preview": preview_name,
-            "final": saved_name,
-            "processed": stored_processed_name,
-            "modules": modules_text,
-            "original_name": original_name,
-            "timestamp": timestamp,
-            "original_size": original_size,
-            "processed_size": processed_size,
-            "final_size": final_size,
-            "compression_method": (compression_info or {}).get("method", "none"),
-            "compression_format": (compression_info or {}).get("format", ""),
-            "compression_quality": (compression_info or {}).get("quality"),
-            "compression_stage_size": compressed_stage_size,
-            "compression_delta": (compression_info or {}).get("delta"),
-            "compression_delta_percent": (compression_info or {}).get("delta_percent"),
-            "encryption_used": use_encryption,
-            "integrity_used": use_integrity,
+            "final": final_filename,
         }
 
         with DATA_LOCK:
-            IMAGE_ENTRIES.append(entry)
-        add_log("📡 Обновления готовы для панели управления.")
+            UPLOAD_RECORDS.append(record)
+
+        add_log("✅ Загрузка завершена успешно.", upload_id=upload_id)
+        add_log("📡 Обновления готовы для панели управления.", upload_id=upload_id)
 
         return jsonify({"status": "success", "message": "Файл успешно загружен"})
     except Exception as exc:  # noqa: BLE001
-        add_log(f"❌ Непредвиденная ошибка обработки: {exc}")
+        logging.exception("Unexpected error during upload handling")
+        add_log(f"❌ Непредвиденная ошибка обработки: {exc}", level="ERROR", upload_id=upload_id)
         return jsonify({"status": "error", "message": "Внутренняя ошибка сервера"}), 500
 
 

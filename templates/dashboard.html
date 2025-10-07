@@ -4,8 +4,11 @@
     <meta charset="UTF-8">
     <title>Панель управления сервером</title>
     <style>
+        :root {
+            color-scheme: light;
+        }
         body {
-            font-family: Arial, sans-serif;
+            font-family: "Inter", Arial, sans-serif;
             margin: 0;
             padding: 24px;
             background: #f1f3f5;
@@ -13,6 +16,7 @@
         }
         h1 {
             margin-bottom: 16px;
+            font-size: 28px;
         }
         .container {
             display: grid;
@@ -21,46 +25,199 @@
         }
         .card {
             background: #ffffff;
-            border-radius: 8px;
-            padding: 16px;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+            border-radius: 10px;
+            padding: 18px;
+            box-shadow: 0 8px 24px rgba(33, 37, 41, 0.08);
             min-height: 200px;
-        }
-        #logContainer {
-            white-space: pre-wrap;
-            font-family: Consolas, monospace;
-            font-size: 14px;
-            max-height: 520px;
-            overflow-y: auto;
-        }
-        #imageGallery {
-            display: flex;
-            flex-direction: column;
-            gap: 16px;
-        }
-        .preview-card {
-            background: #f8f9fa;
-            border: 1px solid #dee2e6;
-            border-radius: 8px;
-            overflow: hidden;
-            box-shadow: 0 1px 4px rgba(33, 37, 41, 0.08);
-        }
-        .preview-card img {
-            width: 100%;
-            display: block;
-        }
-        .preview-card .preview-meta {
-            padding: 12px 16px;
-            font-size: 14px;
-            line-height: 1.4;
-        }
-        .preview-card .preview-meta strong {
-            display: block;
-            margin-bottom: 4px;
         }
         #statusMessage {
             margin-top: 12px;
             min-height: 20px;
+            font-size: 14px;
+            color: #495057;
+        }
+        .log-list {
+            list-style: none;
+            margin: 0;
+            padding: 0;
+            max-height: 520px;
+            overflow-y: auto;
+            border: 1px solid #e9ecef;
+            border-radius: 8px;
+            background: #f8f9fa;
+            font-family: "Fira Code", "Consolas", monospace;
+            font-size: 13px;
+        }
+        .log-entry {
+            display: grid;
+            grid-template-columns: 72px 70px 1fr;
+            gap: 8px;
+            align-items: start;
+            padding: 8px 12px;
+            border-bottom: 1px solid #e9ecef;
+        }
+        .log-entry:last-child {
+            border-bottom: none;
+        }
+        .log-entry__time {
+            color: #868e96;
+        }
+        .log-entry__level {
+            font-weight: 600;
+            text-transform: uppercase;
+            color: #495057;
+        }
+        .log-entry__message {
+            color: #212529;
+        }
+        .log-entry--error {
+            background: #fff5f5;
+        }
+        .log-entry--error .log-entry__level,
+        .log-entry--error .log-entry__message {
+            color: #c92a2a;
+        }
+        .log-list__placeholder {
+            padding: 12px;
+            text-align: center;
+            color: #868e96;
+        }
+        #imageGallery {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+            gap: 18px;
+        }
+        .upload-gallery__placeholder {
+            padding: 32px;
+            text-align: center;
+            border: 1px dashed #ced4da;
+            border-radius: 8px;
+            color: #868e96;
+            background: #f8f9fa;
+        }
+        .upload-card {
+            background: #ffffff;
+            border: 1px solid #dee2e6;
+            border-radius: 12px;
+            display: flex;
+            flex-direction: column;
+            padding: 16px;
+            box-shadow: 0 10px 22px rgba(33, 37, 41, 0.08);
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+        .upload-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 28px rgba(33, 37, 41, 0.12);
+        }
+        .upload-card--error {
+            border-color: #ffc9c9;
+            background: #fff5f5;
+        }
+        .upload-card__header {
+            display: flex;
+            justify-content: space-between;
+            gap: 16px;
+            margin-bottom: 12px;
+        }
+        .upload-card__header-left {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        .upload-card__title {
+            font-size: 16px;
+            font-weight: 600;
+            color: #212529;
+        }
+        .upload-card__time {
+            font-size: 13px;
+            color: #868e96;
+        }
+        .upload-card__header-right {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 6px;
+        }
+        .module-icons {
+            display: flex;
+            gap: 6px;
+        }
+        .module-icons__item,
+        .module-icons__placeholder {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            background: #e9ecef;
+            font-size: 16px;
+            color: #495057;
+        }
+        .module-icons__placeholder {
+            background: none;
+        }
+        .status-badge {
+            font-size: 12px;
+            font-weight: 600;
+            padding: 4px 10px;
+            border-radius: 999px;
+        }
+        .status-badge--success {
+            background: #d3f9d8;
+            color: #2f9e44;
+        }
+        .status-badge--error {
+            background: #ffe3e3;
+            color: #e03131;
+        }
+        .upload-card__media {
+            border-radius: 10px;
+            overflow: hidden;
+            background: #f1f3f5;
+            min-height: 200px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 12px;
+        }
+        .upload-card__media img {
+            width: 100%;
+            display: block;
+        }
+        .upload-card__placeholder {
+            text-align: center;
+            padding: 36px 16px;
+            font-size: 14px;
+            color: #c92a2a;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            align-items: center;
+        }
+        .upload-card__stats {
+            margin: 0;
+            display: grid;
+            grid-template-columns: auto 1fr;
+            column-gap: 12px;
+            row-gap: 6px;
+            font-size: 13px;
+        }
+        .upload-card__stats dt {
+            color: #868e96;
+        }
+        .upload-card__stats dd {
+            margin: 0;
+            color: #212529;
+        }
+        .upload-card__link a {
+            color: #1c7ed6;
+            text-decoration: none;
+            font-weight: 600;
+        }
+        .upload-card__link a:hover {
+            text-decoration: underline;
         }
         @media (max-width: 900px) {
             .container {
@@ -74,19 +231,226 @@
     <div class="container">
         <div class="card">
             <h2>Журнал событий</h2>
-            <pre id="logContainer">Логи еще не получены...</pre>
+            <ul id="logList" class="log-list">
+                <li class="log-list__placeholder">Логи еще не получены...</li>
+            </ul>
         </div>
         <div class="card">
-            <h2>Загруженные изображения</h2>
-            <div id="imageGallery">Изображения еще не получены...</div>
+            <h2>Загрузки</h2>
+            <div id="imageGallery">
+                <div class="upload-gallery__placeholder">Загрузок пока нет...</div>
+            </div>
         </div>
     </div>
     <div id="statusMessage"></div>
 
     <script>
-        const logContainer = document.getElementById('logContainer');
+        const logList = document.getElementById('logList');
         const imageGallery = document.getElementById('imageGallery');
         const statusMessage = document.getElementById('statusMessage');
+
+        const MODULE_ICONS = {
+            encryption: { icon: '🔒', label: 'Шифрование' },
+            compression: { icon: '📦', label: 'Сжатие (GZIP)' },
+            integrity: { icon: '🛡️', label: 'Проверка целостности' },
+        };
+
+        const MAX_LOG_ENTRIES = 200;
+
+        function formatBytes(value) {
+            if (typeof value !== 'number' || Number.isNaN(value)) {
+                return null;
+            }
+            const units = ['Б', 'КБ', 'МБ', 'ГБ'];
+            let size = value;
+            let unitIndex = 0;
+            while (size >= 1024 && unitIndex < units.length - 1) {
+                size /= 1024;
+                unitIndex += 1;
+            }
+            const formatted = size >= 10 || unitIndex === 0 ? Math.round(size) : size.toFixed(1);
+            return `${formatted} ${units[unitIndex]}`;
+        }
+
+        function createModuleIcons(modules = {}) {
+            const container = document.createElement('div');
+            container.className = 'module-icons';
+            const active = Object.entries(MODULE_ICONS).filter(([key]) => modules[key]);
+            if (!active.length) {
+                const placeholder = document.createElement('span');
+                placeholder.className = 'module-icons__placeholder';
+                placeholder.textContent = '—';
+                placeholder.title = 'Модули отключены';
+                container.append(placeholder);
+                return container;
+            }
+            for (const [key, meta] of active) {
+                const span = document.createElement('span');
+                span.className = 'module-icons__item';
+                span.textContent = meta.icon;
+                span.title = meta.label;
+                container.append(span);
+            }
+            return container;
+        }
+
+        function renderLogs(logs = []) {
+            logList.innerHTML = '';
+            if (!logs.length) {
+                const placeholder = document.createElement('li');
+                placeholder.className = 'log-list__placeholder';
+                placeholder.textContent = 'Логи еще не получены...';
+                logList.append(placeholder);
+                return;
+            }
+            const recent = logs.slice(-MAX_LOG_ENTRIES);
+            for (const entry of recent) {
+                const level = (entry.level || 'INFO').toLowerCase();
+                const listItem = document.createElement('li');
+                listItem.className = `log-entry log-entry--${level}`;
+
+                const time = document.createElement('span');
+                time.className = 'log-entry__time';
+                time.textContent = entry.timestamp || '';
+
+                const levelEl = document.createElement('span');
+                levelEl.className = 'log-entry__level';
+                levelEl.textContent = (entry.level || 'INFO').toUpperCase();
+
+                const message = document.createElement('span');
+                message.className = 'log-entry__message';
+                message.textContent = entry.message || '';
+
+                listItem.append(time, levelEl, message);
+                logList.append(listItem);
+            }
+        }
+
+        function renderUploads(uploads = []) {
+            imageGallery.innerHTML = '';
+            if (!uploads.length) {
+                const placeholder = document.createElement('div');
+                placeholder.className = 'upload-gallery__placeholder';
+                placeholder.textContent = 'Загрузок пока нет...';
+                imageGallery.append(placeholder);
+                return;
+            }
+
+            const ordered = [...uploads].reverse();
+            for (const entry of ordered) {
+                const card = document.createElement('article');
+                card.className = `upload-card upload-card--${entry.status}`;
+
+                const modules = entry.modules || {};
+                const sizes = entry.sizes || {};
+                const compressionMeta = entry.compression || {};
+                const files = entry.files || {};
+
+                const header = document.createElement('div');
+                header.className = 'upload-card__header';
+
+                const headerLeft = document.createElement('div');
+                headerLeft.className = 'upload-card__header-left';
+
+                const title = document.createElement('div');
+                title.className = 'upload-card__title';
+                title.textContent = entry.original_name || 'неизвестный файл';
+
+                const time = document.createElement('div');
+                time.className = 'upload-card__time';
+                time.textContent = entry.timestamp || '';
+
+                headerLeft.append(title, time);
+
+                const headerRight = document.createElement('div');
+                headerRight.className = 'upload-card__header-right';
+
+                const statusBadge = document.createElement('span');
+                statusBadge.className = `status-badge status-badge--${entry.status}`;
+                statusBadge.textContent = entry.status === 'success' ? 'Успех' : 'Ошибка';
+
+                const moduleIcons = createModuleIcons(modules);
+
+                headerRight.append(statusBadge, moduleIcons);
+
+                header.append(headerLeft, headerRight);
+                card.append(header);
+
+                const media = document.createElement('div');
+                media.className = 'upload-card__media';
+                const hasPreview = entry.status === 'success' && (files.preview || files.final);
+                if (hasPreview) {
+                    const img = document.createElement('img');
+                    img.src = `/uploads/${files.preview || files.final}`;
+                    img.alt = `Результат обработки ${entry.original_name || 'файла'}`;
+                    media.append(img);
+                } else {
+                    const placeholder = document.createElement('div');
+                    placeholder.className = 'upload-card__placeholder';
+                    placeholder.innerHTML = `<span style="font-size:28px;">⚠️</span><span>${entry.status_message || 'Не удалось обработать файл'}</span>`;
+                    media.append(placeholder);
+                }
+                card.append(media);
+
+                const stats = document.createElement('dl');
+                stats.className = 'upload-card__stats';
+
+                const addStat = (label, value, { html = false } = {}) => {
+                    if (value === undefined || value === null || value === '') {
+                        return;
+                    }
+                    const dt = document.createElement('dt');
+                    dt.textContent = label;
+                    const dd = document.createElement('dd');
+                    if (html) {
+                        dd.innerHTML = value;
+                    } else {
+                        dd.textContent = value;
+                    }
+                    stats.append(dt, dd);
+                };
+
+                addStat('Исходный размер', formatBytes(sizes.original));
+
+                if (modules.compression && typeof sizes.after_compression === 'number') {
+                    let compressionText = formatBytes(sizes.after_compression);
+                    if (typeof sizes.compression_ratio_percent === 'number') {
+                        compressionText += ` (${sizes.compression_ratio_percent.toFixed(1)}%)`;
+                    }
+                    if (typeof compressionMeta.savings_percent === 'number') {
+                        const savings = compressionMeta.savings_percent;
+                        const savingsLabel = savings >= 0 ? 'экономия' : 'рост';
+                        compressionText += `, ${savingsLabel} ${Math.abs(savings).toFixed(1)}%`;
+                    }
+                    if (typeof compressionMeta.change_bytes === 'number') {
+                        const changeBytes = compressionMeta.change_bytes;
+                        compressionText += ` (${changeBytes >= 0 ? '+' : ''}${changeBytes} Б)`;
+                    }
+                    addStat('После GZIP', compressionText);
+                }
+
+                if (typeof sizes.after_encryption === 'number') {
+                    addStat('Пакет в канале', formatBytes(sizes.after_encryption));
+                }
+
+                if (typeof sizes.final === 'number') {
+                    addStat('Итоговый размер', formatBytes(sizes.final));
+                }
+
+                addStat('Сообщение', entry.status_message);
+
+                if (entry.status === 'success' && files.final) {
+                    addStat(
+                        'Файл',
+                        `<a href="/uploads/${files.final}" target="_blank" rel="noopener">Открыть</a>`,
+                        { html: true },
+                    );
+                }
+
+                card.append(stats);
+                imageGallery.append(card);
+            }
+        }
 
         async function fetchUpdates() {
             try {
@@ -96,56 +460,8 @@
                 }
 
                 const data = await response.json();
-                logContainer.textContent = data.logs.length
-                    ? data.logs.join('\n')
-                    : 'Логи еще не получены...';
-
-                if (data.images.length) {
-                    imageGallery.innerHTML = '';
-                    for (const entry of data.images) {
-                        const card = document.createElement('div');
-                        card.className = 'preview-card';
-
-                        const img = document.createElement('img');
-                        img.src = `/uploads/${entry.preview}`;
-                        img.alt = `Превью обработки ${entry.original_name || entry.preview}`;
-                        card.appendChild(img);
-
-                        const meta = document.createElement('div');
-                        meta.className = 'preview-meta';
-                        const modulesLabel = entry.modules === 'нет' ? 'Без включенных модулей' : entry.modules;
-
-                        const deltaBytes = typeof entry.compression_delta === 'number' ? entry.compression_delta : 0;
-                        const deltaPercent = typeof entry.compression_delta_percent === 'number'
-                            ? `${deltaBytes >= 0 ? '+' : ''}${entry.compression_delta_percent.toFixed(1)}%`
-                            : 'н/д';
-                        const compressionStageSize = entry.compression_stage_size ?? entry.processed_size;
-                        let compressionDetails = '';
-                        if (entry.compression_method && entry.compression_method !== 'none') {
-                            const methodLabel = entry.compression_format || entry.compression_method.toUpperCase();
-                            const qualityLabel = entry.compression_quality ? ` (качество ${entry.compression_quality})` : '';
-                            compressionDetails = `<br>Δ потока: ${deltaBytes >= 0 ? '+' : ''}${deltaBytes} Б (${deltaPercent})` +
-                                `<br>Метод сжатия: ${methodLabel}${qualityLabel}` +
-                                `<br>Размер потока после сжатия: ${compressionStageSize} Б`;
-                        }
-
-                        meta.innerHTML = `
-                            <strong>${modulesLabel}</strong>
-                            Имя клиента: ${entry.original_name || 'неизвестно'}<br>
-                            Время обработки: ${entry.timestamp}<br>
-                            Исходный размер: ${entry.original_size} Б${compressionDetails}
-                            <br>Поток после модулей: ${entry.processed_size} Б
-                            <br>Получено сервером: ${entry.final_size} Б
-                            <br>Файл на диске: ${entry.final}
-                            ${entry.processed ? `<br>Потоковый файл: ${entry.processed}` : ''}
-                        `;
-                        card.appendChild(meta);
-
-                        imageGallery.appendChild(card);
-                    }
-                } else {
-                    imageGallery.textContent = 'Изображения еще не получены...';
-                }
+                renderLogs(data.logs || []);
+                renderUploads(data.uploads || []);
 
                 statusMessage.textContent = `Последнее обновление: ${new Date().toLocaleTimeString('ru-RU')}`;
             } catch (error) {
