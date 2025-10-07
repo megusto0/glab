@@ -45,6 +45,40 @@
             margin-top: 16px;
             min-height: 24px;
         }
+        .switch {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .field-inline {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            flex-wrap: wrap;
+        }
+        .field small {
+            display: block;
+            margin-top: 4px;
+            color: #6c757d;
+        }
+        .field.nested {
+            margin-left: 24px;
+            padding-left: 16px;
+            border-left: 2px solid #e9ecef;
+        }
+        input[type="range"] {
+            width: 100%;
+        }
+        select, input[type="number"] {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ced4da;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        input[type="checkbox"] {
+            transform: scale(1.1);
+        }
     </style>
 </head>
 <body>
@@ -54,18 +88,54 @@
             <div class="field">
                 <label for="imageInput">Выберите изображение</label>
                 <input type="file" id="imageInput" accept="image/*">
+                <small>Подойдет любой формат, Pillow автоматически декодирует файл.</small>
             </div>
             <div class="field">
-                <input type="checkbox" id="useEncryption">
-                <label for="useEncryption">Включить шифрование (AES)</label>
+                <label>Шифрование</label>
+                <label class="switch">
+                    <input type="checkbox" id="useEncryption" checked>
+                    <span>Включить AES (CBC)</span>
+                </label>
             </div>
             <div class="field">
-                <input type="checkbox" id="useCompression">
-                <label for="useCompression">Включить сжатие (GZIP)</label>
+                <label>Сжатие</label>
+                <label class="switch">
+                    <input type="checkbox" id="useCompression" checked>
+                    <span>Включить GZIP перед отправкой</span>
+                </label>
+                <div class="field nested">
+                    <label class="switch">
+                        <input type="checkbox" id="convertToBmp">
+                        <span>Перекодировать изображение в BMP перед сжатием</span>
+                    </label>
+                    <small>Увеличивает размер, но демонстрирует эффект GZIP для несжатых форматов.</small>
+                </div>
             </div>
             <div class="field">
-                <input type="checkbox" id="useIntegrity">
-                <label for="useIntegrity">Проверка целостности (SHA-256)</label>
+                <label for="eccMode">Помехоустойчивый код</label>
+                <select id="eccMode">
+                    <option value="none">Без кодирования</option>
+                    <option value="rep3">Повтор 3× + перемежение</option>
+                </select>
+                <small>ПОК позволяет восстановить данные после ошибок в канале.</small>
+            </div>
+            <div class="field">
+                <label for="integrityMode">Контроль целостности</label>
+                <select id="integrityMode">
+                    <option value="off">Отключено</option>
+                    <option value="hash_open">SHA-256 по открытому тексту (до шифрования)</option>
+                    <option value="hash_cipher">SHA-256 по шифртексту (после шифрования)</option>
+                </select>
+            </div>
+            <div class="field">
+                <label for="channelBer">Канал связи (битовые ошибки)</label>
+                <input type="range" id="channelBer" min="0" max="0.2" step="0.005" value="0">
+                <div class="field-inline">
+                    <span>BER: <strong id="channelBerValue">0.000</strong></span>
+                    <label for="channelSeed">Seed</label>
+                    <input type="number" id="channelSeed" value="1" min="0" step="1">
+                </div>
+                <small>Установите BER &gt; 0, чтобы увидеть искажения и эффект ПОК.</small>
             </div>
             <button type="submit" id="uploadButton">Отправить</button>
         </form>
@@ -79,7 +149,29 @@
         const uploadButton = document.getElementById('uploadButton');
         const encryptionCheckbox = document.getElementById('useEncryption');
         const compressionCheckbox = document.getElementById('useCompression');
-        const integrityCheckbox = document.getElementById('useIntegrity');
+        const convertBmpCheckbox = document.getElementById('convertToBmp');
+        const eccSelect = document.getElementById('eccMode');
+        const integritySelect = document.getElementById('integrityMode');
+        const channelBerInput = document.getElementById('channelBer');
+        const channelBerValue = document.getElementById('channelBerValue');
+        const channelSeedInput = document.getElementById('channelSeed');
+
+        const updateCompressionControls = () => {
+            const enabled = compressionCheckbox.checked;
+            convertBmpCheckbox.disabled = !enabled;
+            if (!enabled) {
+                convertBmpCheckbox.checked = false;
+            }
+        };
+
+        const updateBerDisplay = () => {
+            channelBerValue.textContent = Number(channelBerInput.value).toFixed(3);
+        };
+
+        compressionCheckbox.addEventListener('change', updateCompressionControls);
+        channelBerInput.addEventListener('input', updateBerDisplay);
+        updateCompressionControls();
+        updateBerDisplay();
 
         form.addEventListener('submit', async (event) => {
             event.preventDefault();
@@ -99,15 +191,11 @@
                 formData.append('image', file);
                 formData.append('use_encryption', String(encryptionCheckbox.checked));
                 formData.append('use_compression', String(compressionCheckbox.checked));
-                formData.append('use_integrity', String(integrityCheckbox.checked));
-
-                if (integrityCheckbox.checked) {
-                    const arrayBuffer = await file.arrayBuffer();
-                    const hashBuffer = await crypto.subtle.digest('SHA-256', arrayBuffer);
-                    const hashArray = Array.from(new Uint8Array(hashBuffer));
-                    const hashHex = hashArray.map((byte) => byte.toString(16).padStart(2, '0')).join('');
-                    formData.append('integrity_hash', hashHex);
-                }
+                formData.append('convert_to_bmp', String(compressionCheckbox.checked && convertBmpCheckbox.checked));
+                formData.append('ecc_mode', eccSelect.value);
+                formData.append('integrity_mode', integritySelect.value);
+                formData.append('channel_ber', channelBerInput.value);
+                formData.append('channel_seed', channelSeedInput.value);
 
                 const response = await fetch('/upload', {
                     method: 'POST',

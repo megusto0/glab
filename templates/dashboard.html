@@ -77,6 +77,13 @@
         .log-entry--error .log-entry__message {
             color: #c92a2a;
         }
+        .log-entry--warning {
+            background: #fff9db;
+        }
+        .log-entry--warning .log-entry__level,
+        .log-entry--warning .log-entry__message {
+            color: #e67700;
+        }
         .log-list__placeholder {
             padding: 12px;
             text-align: center;
@@ -252,7 +259,10 @@
         const MODULE_ICONS = {
             encryption: { icon: '🔒', label: 'Шифрование' },
             compression: { icon: '📦', label: 'Сжатие (GZIP)' },
-            integrity: { icon: '🛡️', label: 'Проверка целостности' },
+            ecc: { icon: '🛡️', label: 'ПОК (повтор 3×)' },
+            channel: { icon: '📡', label: 'Помехи в канале' },
+            integrity: { icon: '✅', label: 'Контроль целостности' },
+            convert_to_bmp: { icon: '🖼', label: 'BMP перед GZIP' },
         };
 
         const MAX_LOG_ENTRIES = 200;
@@ -343,8 +353,10 @@
 
                 const modules = entry.modules || {};
                 const sizes = entry.sizes || {};
-                const compressionMeta = entry.compression || {};
+                const metrics = entry.metrics || {};
                 const files = entry.files || {};
+                const formats = entry.formats || {};
+                const channelMeta = entry.channel || {};
 
                 const header = document.createElement('div');
                 header.className = 'upload-card__header';
@@ -378,10 +390,10 @@
 
                 const media = document.createElement('div');
                 media.className = 'upload-card__media';
-                const hasPreview = entry.status === 'success' && (files.preview || files.final);
+                const hasPreview = entry.status === 'success' && files.preview;
                 if (hasPreview) {
                     const img = document.createElement('img');
-                    img.src = `/uploads/${files.preview || files.final}`;
+                    img.src = `/uploads/${files.preview}`;
                     img.alt = `Результат обработки ${entry.original_name || 'файла'}`;
                     media.append(img);
                 } else {
@@ -411,38 +423,104 @@
                 };
 
                 addStat('Исходный размер', formatBytes(sizes.original));
-
-                if (modules.compression && typeof sizes.after_compression === 'number') {
+                if (typeof sizes.after_conversion === 'number') {
+                    const label = modules.convert_to_bmp ? 'BMP перед GZIP' : 'После преобразования';
+                    addStat(label, formatBytes(sizes.after_conversion));
+                }
+                if (typeof sizes.after_compression === 'number') {
                     let compressionText = formatBytes(sizes.after_compression);
-                    if (typeof sizes.compression_ratio_percent === 'number') {
-                        compressionText += ` (${sizes.compression_ratio_percent.toFixed(1)}%)`;
+                    const compressionMetrics = metrics.compression || {};
+                    if (typeof compressionMetrics.ratio_percent === 'number') {
+                        compressionText += ` (${compressionMetrics.ratio_percent.toFixed(1)}%)`;
                     }
-                    if (typeof compressionMeta.savings_percent === 'number') {
-                        const savings = compressionMeta.savings_percent;
-                        const savingsLabel = savings >= 0 ? 'экономия' : 'рост';
-                        compressionText += `, ${savingsLabel} ${Math.abs(savings).toFixed(1)}%`;
+                    if (typeof compressionMetrics.savings_percent === 'number') {
+                        const savings = compressionMetrics.savings_percent;
+                        const signLabel = savings >= 0 ? 'экономия' : 'рост';
+                        compressionText += `, ${signLabel} ${Math.abs(savings).toFixed(1)}%`;
                     }
-                    if (typeof compressionMeta.change_bytes === 'number') {
-                        const changeBytes = compressionMeta.change_bytes;
-                        compressionText += ` (${changeBytes >= 0 ? '+' : ''}${changeBytes} Б)`;
+                    if (typeof compressionMetrics.change_bytes === 'number') {
+                        const delta = compressionMetrics.change_bytes;
+                        compressionText += ` (${delta >= 0 ? '+' : ''}${delta} Б)`;
                     }
                     addStat('После GZIP', compressionText);
                 }
+                if (typeof sizes.after_ecc === 'number') {
+                    addStat('После ПОК (кодирование)', formatBytes(sizes.after_ecc));
+                }
+                if (typeof sizes.ciphertext === 'number') {
+                    addStat('Шифртекст', formatBytes(sizes.ciphertext));
+                }
+                if (typeof sizes.after_channel === 'number') {
+                    let channelText = formatBytes(sizes.after_channel);
+                    const channelStats = metrics.channel || {};
+                    if (typeof channelStats.bit_errors === 'number') {
+                        channelText += `, ошибок: ${channelStats.bit_errors}`;
+                    }
+                    if (typeof channelStats.ber_actual === 'number') {
+                        channelText += `, BER=${(channelStats.ber_actual * 100).toFixed(2)}%`;
+                    }
+                    addStat('После канала', channelText);
+                }
+                if (typeof sizes.after_decryption === 'number') {
+                    addStat('После дешифрования', formatBytes(sizes.after_decryption));
+                }
+                if (typeof sizes.after_ecc_decode === 'number') {
+                    addStat('После ПОК (декод.)', formatBytes(sizes.after_ecc_decode));
+                }
+                addStat('Итоговый размер', formatBytes(sizes.final));
 
-                if (typeof sizes.after_encryption === 'number') {
-                    addStat('Пакет в канале', formatBytes(sizes.after_encryption));
+                const eccMetrics = metrics.ecc || {};
+                if (eccMetrics.mode === 'rep3') {
+                    let eccText = '';
+                    if (typeof eccMetrics.errors_before === 'number') {
+                        eccText += `до: ${eccMetrics.errors_before}`;
+                    }
+                    if (typeof eccMetrics.errors_after === 'number') {
+                        eccText += `${eccText ? ', ' : ''}после: ${eccMetrics.errors_after}`;
+                    }
+                    if (typeof eccMetrics.corrected === 'number') {
+                        eccText += `${eccText ? ', ' : ''}исправлено ≈ ${eccMetrics.corrected}`;
+                    }
+                    addStat('ПОК', eccText);
                 }
 
-                if (typeof sizes.final === 'number') {
-                    addStat('Итоговый размер', formatBytes(sizes.final));
+                const integrityMetrics = metrics.integrity || {};
+                if (integrityMetrics.mode && integrityMetrics.mode !== 'off') {
+                    const statusText = integrityMetrics.status === 'ok' ? 'OK' : 'Нарушена';
+                    addStat('Целостность', `${integrityMetrics.mode}: ${statusText}`);
+                }
+
+                if (channelMeta && typeof channelMeta.ber === 'number') {
+                    addStat(
+                        'Канал',
+                        `BER запрошенный ${(channelMeta.ber * 100).toFixed(2)}%, seed ${channelMeta.seed ?? '—'}`,
+                    );
+                }
+
+                if (formats && formats.final) {
+                    addStat('Финальный формат', formats.final);
                 }
 
                 addStat('Сообщение', entry.status_message);
 
-                if (entry.status === 'success' && files.final) {
+                if (files.final) {
                     addStat(
                         'Файл',
                         `<a href="/uploads/${files.final}" target="_blank" rel="noopener">Открыть</a>`,
+                        { html: true },
+                    );
+                }
+                if (files.cipher_preview) {
+                    addStat(
+                        'Шифртекст PNG',
+                        `<a href="/uploads/${files.cipher_preview}" target="_blank" rel="noopener">Просмотреть</a>`,
+                        { html: true },
+                    );
+                }
+                if (files.channel_preview) {
+                    addStat(
+                        'После канала PNG',
+                        `<a href="/uploads/${files.channel_preview}" target="_blank" rel="noopener">Просмотреть</a>`,
                         { html: true },
                     );
                 }
